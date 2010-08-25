@@ -17,11 +17,10 @@
 
 mysql_user='test'
 mysql_password='test'
-mysql_host='malvinas' # do not use localhost. Use a unique identifier (hostname, IP...)
+mysql_host_list=['malvinas','127.0.0.1','malvinas.localhost.com'] # do not use localhost. Use a unique identifier (hostname, IP...)
 
 svn_co_url='http://user:password@localhost/subversion/' # where am  I going to put all the stuff!
 cwd='/tmp/' #where am I going to store temporary files and svn checkout
-my_cnf_path='/etc/mysql/my.cnf' # /etc/my.cnf on RH
 
 mail_to='test@me.com'
 
@@ -72,7 +71,7 @@ def checkout_svn():
 		return False
 	return True
 
-def dump_and_diff_schema():
+def dump_and_diff_schema(mysql_host):
 	diff_text=''
 	first_run=True
 	dst_file=cwd+'/mysql_mon/schema.'+mysql_host+'.sql'
@@ -85,20 +84,7 @@ def dump_and_diff_schema():
 		diff_text = svn_client.diff(cwd,dst_file)
 	return diff_text
 
-def get_my_cnf():
-        diff_text=''
-        first_run=True
-	dst_file = cwd+'/mysql_mon/my_cnf.'+mysql_host
-        if os.path.exists(dst_file):
-                first_run=False
-        os.system('cat '+my_cnf_path+' >'+dst_file)
-        if first_run:
-                svn_client.add(dst_file)
-        else:
-                diff_text = svn_client.diff(cwd,dst_file)
-        return diff_text
-
-def get_mysql_variables():
+def get_mysql_variables(mysql_host):
         diff_text=''
         first_run=True
 	dst_file = cwd+'/mysql_mon/variables.'+mysql_host
@@ -116,7 +102,7 @@ def cleanup():
 	shutil.rmtree(cwd);	
 
 def commit_differences():
-	svn_client.checkin(cwd+'/mysql_mon/','Commit of DB schema for '+mysql_host)
+	svn_client.checkin(cwd+'/mysql_mon/','Commit of DB schema')
 
 def send_email(text):
 	msg =  MIMEText(text, 'plain')
@@ -139,13 +125,12 @@ if __name__ == '__main__':
 		commit_differences()
 	else:
 		if checkout_svn():
-			all_diff=''
-			print 'Dumping DB schema for '+mysql_host+'...'
-		        all_diff+=dump_and_diff_schema()
-			print 'Checking my.cnf for '+mysql_host+'...'
-		        all_diff+=get_my_cnf()
-			print 'Checking variables for '+mysql_host+'...'
-		        all_diff+=get_mysql_variables()
+			for mysql_host in mysql_host_list:
+				all_diff=''
+				print 'Dumping DB schema for '+mysql_host+'...'
+			        all_diff+=dump_and_diff_schema(mysql_host)
+				print 'Checking variables for '+mysql_host+'...'
+			        all_diff+=get_mysql_variables(mysql_host)
 			if len(all_diff) > 0:
 				print 'Sending email!'
 				send_email(all_diff)
