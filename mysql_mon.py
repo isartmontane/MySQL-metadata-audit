@@ -17,13 +17,17 @@
 
 mysql_user='test'
 mysql_password='test'
-mysql_host='192.168.1.2' # do not use localhost. Use a unique identifier (hostname, IP...)
+mysql_host='malvinas' # do not use localhost. Use a unique identifier (hostname, IP...)
 
 svn_co_url='http://user:password@localhost/subversion/' # where am  I going to put all the stuff!
 cwd='/tmp/' #where am I going to store temporary files and svn checkout
 my_cnf_path='/etc/mysql/my.cnf' # /etc/my.cnf on RH
 
 mail_to='test@me.com'
+
+#############################################################################
+## Do not change anything below this line unless you know what you are doing
+#############################################################################
 
 import os
 import pysvn
@@ -41,6 +45,10 @@ mail_from='mysql_mon@'+socket.gethostname()
 svn_client = pysvn.Client()
 random_str=''.join(random.choice(string.letters) for i in xrange(10))
 cwd+='/'+random_str+'/' # generating a random dir to store the checkout
+
+if os.environ['USER'] == "root": 
+	print "Can't run as root"
+	sys.exit()
 
 os.mkdir(cwd)
 
