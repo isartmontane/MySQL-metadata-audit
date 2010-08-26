@@ -9,7 +9,7 @@
 		- I like coding!
 #Installation
 	## Prerequisites
-		## You will need a working SVN repository. If you don't know how to create one take a look at the following link or Google for it.
+		## You will need a working SVN repository. If you don't know how to create one, take a look at the following link or Google for it.
 			http://www.howtoforge.com/apache_subversion_repository
 
 		## Debian / Ubuntu
@@ -26,6 +26,9 @@
 		python mysql_mon.py --create
 	## From now on you just need to run mysql_mon without any params
 		python mysql_mon.py	
+	## If you want to run it every day (recommended), just edit the mysql_mon.cron and then copy it to /etc/cron.d
+		vim mysql_mon.cron
+		cp mysql_mon.cron /etc/cron.d/
 # Basic Usage.
 	mysql_mon will add into your SVN repository the variables, users and schema of each of the databases defined. 
 	It will also notify you via email (or stdout if it's running in Debug mode) if there are changes on the server variables, schema or user grants.
