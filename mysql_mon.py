@@ -178,5 +178,5 @@ if __name__ == '__main__':
 			else:
 				p('No changes found')
 			commit_differences()
-#	cleanup()
+	cleanup()
 	p('Bye!')
