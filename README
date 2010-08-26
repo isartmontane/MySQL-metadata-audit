@@ -31,7 +31,8 @@
 	mysql_mon will add into your SVN repository the variables, users and schema of each of the databases defined. 
 	It will also notify you via email (or stdout if it's running in Debug mode) if there are changes on the server variables, schema or user grants.
 	
-	Ideally, mysql_mon needs to run on a daily cron job so you get emails on every change.
+	Ideally, mysql_mon needs to run on a daily cron job so you get a daily email when something is changed.
 
-#Comments
-	Feel free to contact me at isart<dot>montane{at}gmail<dot>com if you have any question, feature requests or you have found a bug.
+#Comments & author
+	Feel free to contact me if you have any question, feature requests or you have found a bug.
+	Isart Montane Mogas <isart.montane@gmail.com>
