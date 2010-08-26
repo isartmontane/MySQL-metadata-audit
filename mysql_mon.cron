@@ -1,0 +1,4 @@
+# Mysql metadata audit cron file. 
+# Check http://github.com/isartmontane/MySQL-metadata-audit for more details
+
+0 3 * * * user /usr/bin/python /full/path/to/mysql_mon.py
