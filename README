@@ -21,7 +21,6 @@
 			http://github.com/isartmontane/MySQL-metadata-audit			
 	## Create a MySQL user
 		GRANT SELECT, LOCK TABLES ON *.* TO 'user'@'host' IDENTIFIED BY 'password';
-		GRANT SELECT   ON `mysql`.`user` TO 'user'@'host';
 	## Edit mysql_mon.py and change the configuration variables.
 	## The first run will require mysql_mon to create the required directory on SVN
 		python mysql_mon.py --create
