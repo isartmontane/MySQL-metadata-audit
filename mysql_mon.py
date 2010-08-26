@@ -22,11 +22,13 @@ mysql_host_list=['malvinas','127.0.0.1','malvinas.localhost.com'] # do not use l
 svn_co_url='http://user:password@localhost/subversion/' # where am  I going to put all the stuff!
 cwd='/tmp/' #where am I going to store temporary files and svn checkout
 
-mail_to='test@me.com'
+mail_to='test@me.com' #Where to send the changes
 
 #############################################################################
 ## Do not change anything below this line unless you know what you are doing
 #############################################################################
+
+DEBUG=True
 
 import os
 import pysvn
@@ -45,33 +47,39 @@ svn_client = pysvn.Client()
 random_str=''.join(random.choice(string.letters) for i in xrange(10))
 cwd+='/'+random_str+'/' # generating a random dir to store the checkout
 
+
 if os.environ['USER'] == "root": 
 	print "Can't run as root"
 	sys.exit()
 
 os.mkdir(cwd)
 
+def p(string):
+	if DEBUG:
+		print string;
+
 def create_svn():
 	svn_client.checkout(svn_co_url,cwd)
 	try:
 		svn_client.mkdir(cwd+'/mysql_mon/','initializing mysql_mon directory')
 	except:
-		print "Error creating svn directory. It may already exists"
+		p("Error creating svn directory. It may already exists")
 
 def checkout_svn():
-	print 'checking existing svn checkout...'
+	p('Checking existing svn checkout...')
 	try:
 		if os.path.exists(cwd+'/mysql_mon/') and svn_client.root_url_from_path(cwd+'/mysql_mon') == svn_co_url+'/mysql_mon/': 
-			print "svn directory seems to exist."
+			p("Svn directory seems to exist.")
 		else:
-			print "checking out from SVN"
+			p("Checking out from SVN")
 			svn_client.checkout(svn_co_url+'/mysql_mon/',cwd+'/mysql_mon/')
 	except:
-		print "Unexpected error during checkout. Is it the first time you run mysql_mon? run it with '--create' first. ", sys.exc_info()[0]
+		print"Unexpected error during checkout. Is it the first time you run mysql_mon? run it with '--create' first. ",sys.exc_info()[0]
 		return False
 	return True
 
 def dump_and_diff_schema(mysql_host):
+	p('\tDumping DB schema ...')
 	diff_text=''
 	first_run=True
 	dst_file=cwd+'/mysql_mon/schema.'+mysql_host+'.sql'
@@ -80,11 +88,11 @@ def dump_and_diff_schema(mysql_host):
 	os.system('mysqldump --skip-dump-date -d -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -A|sed -r "s/ AUTO_INCREMENT=[0-9]+ / /g">'+dst_file)
 	if first_run:
 		svn_client.add(dst_file)
-	else:
-		diff_text = svn_client.diff(cwd,dst_file)
+	diff_text = svn_client.diff(cwd,dst_file)
 	return diff_text
 
 def get_mysql_variables(mysql_host):
+	p('\tChecking variables ...')
         diff_text=''
         first_run=True
 	dst_file = cwd+'/mysql_mon/variables.'+mysql_host
@@ -93,12 +101,44 @@ def get_mysql_variables(mysql_host):
 	os.system('mysql -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -e"show variables"|egrep -v "(pseudo_thread_id|timestamp)">'+dst_file)
         if first_run:
                 svn_client.add(dst_file)
+        diff_text = svn_client.diff(cwd,dst_file)
+        return diff_text
+
+def get_user_permissions(mysql_host):
+	p('\tChecking user permissions ...')
+	conn = MySQLdb.connect (mysql_host, mysql_user, mysql_password)
+	mysqlcursor = conn.cursor()
+	diff_text=''
+        first_run=True
+	dst_file = cwd+'/mysql_mon/users.'+mysql_host
+
+        if os.path.exists(dst_file):
+                first_run=False
+
+	f = open(dst_file,'w')
+
+	mysqlcursor.execute("""select user,host from mysql.user""")
+	rows = mysqlcursor.fetchall()
+	for row in rows:
+		p("\t\tshow grants for '"+row[0]+"'@'"+row[1]+"'")
+		mysqlcursor.execute("""show grants for %s@%s """, (row[0], row[1]))
+		rows_grant = mysqlcursor.fetchall()
+		diff_text+="/* grants for %s@%s */\n" %(row[0], row[1])
+		for row_grant in rows_grant:
+			diff_text+=row_grant[0]+"\n"
+
+	f.writelines(diff_text)
+	f.close()
+        if first_run:
+                svn_client.add(dst_file)
         else:
                 diff_text = svn_client.diff(cwd,dst_file)
         return diff_text
 
+
+
 def cleanup():
-	print 'Cleaning tmp directories and files'
+	p('Cleaning tmp directories and files')
 	shutil.rmtree(cwd);	
 
 def commit_differences():
@@ -119,24 +159,24 @@ def send_email(text):
 
 if __name__ == '__main__':
 	if '--create' in sys.argv:
-		print 'creating mysql_mon svn directory...'
+		p('creating mysql_mon svn directory...')
 		create_svn()
-		print 'done'
+		p('done')
 		commit_differences()
 	else:
 		if checkout_svn():
+			all_diff=''
 			for mysql_host in mysql_host_list:
-				all_diff=''
-				print 'Dumping DB schema for '+mysql_host+'...'
+				p(mysql_host+":")
 			        all_diff+=dump_and_diff_schema(mysql_host)
-				print 'Checking variables for '+mysql_host+'...'
 			        all_diff+=get_mysql_variables(mysql_host)
+				all_diff+=get_user_permissions(mysql_host)
 			if len(all_diff) > 0:
-				print 'Sending email!'
+				p('Sending email!')
 				send_email(all_diff)
 				print all_diff
 			else:
-				print 'No changes found'
+				p('No changes found')
 			commit_differences()
-	cleanup()
-	print 'Bye!'
+#	cleanup()
+	p('Bye!')
