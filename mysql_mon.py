@@ -85,7 +85,7 @@ def dump_and_diff_schema(mysql_host):
 	dst_file=cwd+'/mysql_mon/schema.'+mysql_host+'.sql'
 	if os.path.exists(dst_file):
 		first_run=False
-	os.system('mysqldump --skip-dump-date -d -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -A|sed -r "s/ AUTO_INCREMENT=[0-9]+ / /g">'+dst_file)
+	os.system('mysqldump -R --skip-dump-date -d -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -A|sed -r "s/ AUTO_INCREMENT=[0-9]+ / /g">'+dst_file)
 	if first_run:
 		svn_client.add(dst_file)
 	diff_text = svn_client.diff(cwd,dst_file)
