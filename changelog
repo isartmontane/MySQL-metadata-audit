@@ -1,0 +1,12 @@
+Version 0.2
+- Migrated from SVN to Git. SVN is not supported anymore (sorry!)
+- Able to read mysql servers list from an AWS tag
+- Friendly names for servers (instead of DNS or IP)
+- It can run as root
+
+
+Version 0.1
+- Using SVN repo
+- Tracking table schema changes
+- Tracking users permissions
+- Tracking mysql variables
