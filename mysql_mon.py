@@ -15,14 +15,37 @@
 # Software Foundation, Inc., 59 Temple Place - Suite 330, Boston,
 # MA 02111-1307, USA
 
-mysql_user='test'
-mysql_password='test'
-mysql_host_list=['malvinas','127.0.0.1','malvinas.localhost.com'] # do not use localhost. Use a unique identifier (hostname, IP...)
+#############################################################################
 
-svn_co_url='http://user:password@localhost/subversion/' # where am  I going to put all the stuff!
-cwd='/tmp/' #where am I going to store temporary files and svn checkout
+#
+# This project is currently developped and maintained by Isart Montane Mogas <isart.montane@gmail.com>
+# If you need to get more information about the project please visit
+#  https://github.com/isartmontane/MySQL-metadata-audit
+#
 
-mail_to='test@me.com' #Where to send the changes
+
+#MySQL user/password used to get the MySQL metadata
+mysql_user='isart'
+mysql_password='isart'
+
+#Used on config_file mode
+mysql_host_list={
+'6myServer.mydomain.com':'127.0.0.1',
+'5myServer.mydomain.com':'127.0.0.1',
+'4myServer.mydomain.com':'127.0.0.1',
+'3myServer.mydomain.com':'127.0.0.1',
+'2myServer.mydomain.com':'127.0.0.1',
+'1myServer.mydomain.com':'127.0.0.1',
+}
+
+#Used on AWS mode. We will query AWS and filter all the servers that have the tag Role=mysql
+aws_tag_name="Role"
+aws_tag_value="mysql"
+
+#Where do you have your git repo?
+git_repo_dir="/home/isart/git-repos/mysql-monitor"
+ #Where to send the changes
+mail_to='me@myEmail.com'
 
 #############################################################################
 ## Do not change anything below this line unless you know what you are doing
@@ -30,87 +53,62 @@ mail_to='test@me.com' #Where to send the changes
 
 DEBUG=True
 
+from git import *
 import os
-import pysvn
+import subprocess 
 import shutil 
 import time
 import sys
+import getopt 
 import MySQLdb
 import smtplib
 import socket
-import random
 import string
+import json
 from email.mime.text import MIMEText
 
 mail_from='mysql_mon@'+socket.gethostname()
-svn_client = pysvn.Client()
-random_str=''.join(random.choice(string.letters) for i in xrange(10))
-cwd+='/'+random_str+'/' # generating a random dir to store the checkout
-
-
-if os.environ['USER'] == "root": 
-	print "Can't run as root"
-	sys.exit()
-
-os.mkdir(cwd)
+repo = Repo(git_repo_dir)
+git_repo = repo.git
+aws_server_list={}
+skip_audits={}
 
 def p(string):
 	if DEBUG:
 		print string;
 
-def create_svn():
-	svn_client.checkout(svn_co_url,cwd)
+#Make sure we have the last version of the git repo
+def checkout_git():
+	p('Checking existing git directory...')
 	try:
-		svn_client.mkdir(cwd+'/mysql_mon/','initializing mysql_mon directory')
+		git_repo.pull()
 	except:
-		p("Error creating svn directory. It may already exists")
-
-def checkout_svn():
-	p('Checking existing svn checkout...')
-	try:
-		if os.path.exists(cwd+'/mysql_mon/') and svn_client.root_url_from_path(cwd+'/mysql_mon') == svn_co_url+'/mysql_mon/': 
-			p("Svn directory seems to exist.")
-		else:
-			p("Checking out from SVN")
-			svn_client.checkout(svn_co_url+'/mysql_mon/',cwd+'/mysql_mon/')
-	except:
-		print"Unexpected error during checkout. Is it the first time you run mysql_mon? run it with '--create' first. ",sys.exc_info()[0]
+		print"Unexpected error during checkout. Is it the first time you run mysql_mon? Make sure you have configured an exisiting git repo. "
+		print sys.exc_info()
 		return False
 	return True
 
 def dump_and_diff_schema(mysql_host):
 	p('\tDumping DB schema ...')
 	diff_text=''
-	first_run=True
-	dst_file=cwd+'/mysql_mon/schema.'+mysql_host+'.sql'
-	if os.path.exists(dst_file):
-		first_run=False
-	os.system('mysqldump -R --skip-dump-date -d -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -A|sed -r "s/ AUTO_INCREMENT=[0-9]+ / /g">'+dst_file)
-	if first_run:
-		svn_client.add(dst_file)
-	diff_text = svn_client.diff(cwd,dst_file)
-	return diff_text
+	file_name='schema.'+mysql_host[0]
+	dst_file = git_repo_dir+'/'+file_name
+	os.system('mysqldump -R --skip-dump-date -d -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host[1]+' -A|sed -r "s/ AUTO_INCREMENT=[0-9]+ / /g">'+dst_file)
 
 def get_mysql_variables(mysql_host):
 	p('\tChecking variables ...')
-        diff_text=''
         first_run=True
-	dst_file = cwd+'/mysql_mon/variables.'+mysql_host
-        if os.path.exists(dst_file):
-                first_run=False
-	os.system('mysql -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -e"show variables"|egrep -v "(pseudo_thread_id|timestamp)">'+dst_file)
-        if first_run:
-                svn_client.add(dst_file)
-        diff_text = svn_client.diff(cwd,dst_file)
-        return diff_text
+	file_name='variables.'+mysql_host[0]
+	dst_file = git_repo_dir+'/'+file_name
+	os.system('mysql -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host[1]+' -e"show variables"|egrep -v "(pseudo_thread_id|timestamp)">'+dst_file)
 
 def get_user_permissions(mysql_host):
 	p('\tChecking user permissions ...')
-	conn = MySQLdb.connect (mysql_host, mysql_user, mysql_password)
+	conn = MySQLdb.connect (mysql_host[1], mysql_user, mysql_password)
 	mysqlcursor = conn.cursor()
 	diff_text=''
-        first_run=True
-	dst_file = cwd+'/mysql_mon/users.'+mysql_host
+	file_name='users.'+mysql_host[0]
+	dst_file = git_repo_dir+'/'+file_name
 
         if os.path.exists(dst_file):
                 first_run=False
@@ -129,22 +127,23 @@ def get_user_permissions(mysql_host):
 
 	f.writelines(diff_text)
 	f.close()
-        if first_run:
-                svn_client.add(dst_file)
-        else:
-                diff_text = svn_client.diff(cwd,dst_file)
-        return diff_text
-
-
-
-def cleanup():
-	p('Cleaning tmp directories and files')
-	shutil.rmtree(cwd);	
 
 def commit_differences():
-	svn_client.checkin(cwd+'/mysql_mon/','Commit of DB schema')
+	index = repo.index
+	new_files=repo.untracked_files
+	for f in new_files:
+		p("New file found: "+f)
+		index.add([f])
+	subprocess.Popen( "git commit -a -m'tracking changes' " , cwd = git_repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
+	return new_files
+
+def push_changes():
+	p('Pushing changes to repo')
+	index = repo.index
+	git_repo.push()
 
 def send_email(text):
+	p('Sending email!')
 	msg =  MIMEText(text, 'plain')
 	msg['Subject'] = 'MySQL mon: Changes on %s' % socket.gethostname()
 	msg['From'] = mail_from
@@ -155,28 +154,95 @@ def send_email(text):
 	s = smtplib.SMTP('localhost')
 	s.sendmail(mail_from, [mail_to], msg.as_string())
 	s.quit()
-	
+
+def get_git_diff():
+	pr = subprocess.Popen( "git diff" , cwd = git_repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
+	(out, error) = pr.communicate()
+	new_files=commit_differences()
+	if len(new_files) > 0:
+		out = out+'\n'+', '.join(new_files)
+	return out
+
+def get_aws_instances():
+	p('Getting servers from AWS')
+	server_list = []
+	pr = subprocess.Popen('aws ec2 describe-instances --filter Name=tag:'+aws_tag_name+',Values='+aws_tag_value+' --query "Reservations[].Instances[].[State.Name,Tags,PublicDnsName]"', cwd = git_repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
+	(out, error) = pr.communicate()
+	servers_info = json.loads(out)
+
+	#getting addresses from json array
+	for s in servers_info:
+		#only get running servers
+		if s[0] == 'running':
+			for t in s[1]:
+				#create a name=ip touple
+				if t['Key'] == 'Name':
+					aws_server_list[t['Value']]=s[2]
+
+	return aws_server_list
+
+def run_diff(mysql_host_list):
+	p('Checking the following servers: '+', '.join(mysql_host_list))
+	if checkout_git():
+		all_diff=''
+		for mysql_host in mysql_host_list.items():
+			p("Host - "+mysql_host[0]+":")
+			if "skip-variables-audit" not in skip_audits:
+			        get_mysql_variables(mysql_host)
+			if "skip-user-audit" not in skip_audits:
+				get_user_permissions(mysql_host)
+			if "skip-schema-audit" not in skip_audits.keys():
+				dump_and_diff_schema(mysql_host)
+		all_diff=get_git_diff()
+		if len(all_diff) > 0:
+			p('Changes found:')
+			p(all_diff)
+			push_changes()
+			send_email(all_diff)
+		else:
+			p('No changes found')
+
+def help():
+	print ''
+	print 'mysql_mon.py [--mode <mode>] [--skip-schema-audit] [--skip-user-audit] [--skip-variables-audit]'
+	print ''
+	print '--mode=config_file (Default). It will read the servers list from the beggining of the script.'
+	print '--mode=aws It will read the servers list from a given AWS tag.'
+	print '--skip-XXXX-audit will skip the audit of schema, user or variables. For databases with a big number of tables it might be necessary to skipt schema audit.'
+	print ''
+
 
 if __name__ == '__main__':
-	if '--create' in sys.argv:
-		p('creating mysql_mon svn directory...')
-		create_svn()
-		p('done')
-		commit_differences()
-	else:
-		if checkout_svn():
-			all_diff=''
-			for mysql_host in mysql_host_list:
-				p(mysql_host+":")
-			        all_diff+=dump_and_diff_schema(mysql_host)
-			        all_diff+=get_mysql_variables(mysql_host)
-				all_diff+=get_user_permissions(mysql_host)
-			if len(all_diff) > 0:
-				p('Sending email!')
-				send_email(all_diff)
-				print all_diff
-			else:
-				p('No changes found')
-			commit_differences()
-	cleanup()
+	#mode can be config_file (default) or AWS
+	mode="config_file"
+
+	#parsing arguments
+	try:
+		opts, args = getopt.getopt(sys.argv[1:],"h",["help","mode=","skip-schema-audit","skip-user-audit","skip-variables-audit"])
+	except getopt.GetoptError:
+		help()
+		sys.exit(2)
+	for opt, arg in opts:
+		if opt == '-h':
+			help()
+			sys.exit()
+		elif opt in ("-m", "--mode"):
+			mode = arg
+		elif opt in ("--skip-schema-audit"):
+			skip_audits["skip-schema-audit"]=1
+		elif opt in ("--skip-user-audit"):
+			skip_audits["skip-user-audit"]=1
+		elif opt in ("--skip-variables-audit"):
+			skip_audits["skip-variables-audit"]=1
+
+	p('Running MySQL Metadata Audit in '+mode+' mode')
+	if len(skip_audits)>0:
+		p('Skipping the following audits: '+', '.join(skip_audits.keys()))
+
+	if mode == 'aws':
+		get_aws_instances()
+		mysql_host_list = aws_server_list
+
+	run_diff(mysql_host_list)
+
 	p('Bye!')
