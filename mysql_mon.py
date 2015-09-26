@@ -175,7 +175,8 @@ def run_diff(mysql_host_list):
 			dump_schema(tag,mysql_host)
 			get_diff("schema",tag)
 	print '\n'.join(summary_text)
-	send_email('\n'.join(summary_text))
+	if len(summary_text)>1:
+		send_email('\n'.join(summary_text))
 
 def help():
 	print ''
