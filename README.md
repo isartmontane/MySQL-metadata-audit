@@ -14,11 +14,9 @@ The latest version of MySQL Metadata Audit is able to read servers from config f
 
 ## Prerequisites
 
-You will need a working GIT repository. If you don't know how to create one, Google for it.
-
 ### Debian / Ubuntu
 
-			apt-get install python python-git python-mysqldb
+			apt-get install python 
 
 ### RH / CentOS / Fedora
 
@@ -183,10 +181,6 @@ If you are using AWS tags to audit your servers you will also need to change aws
 			schema.1myServer.mydomain.com, schema.2myServer.mydomain.com, users.1myServer.mydomain.com, users.2myServer.mydomain.com, variables.1myServer.mydomain.com, variables.2myServer.mydomain.com
 			Pushing changes to repo
 			Sending email!
-
-			
-## Older versions
-Older versions of MySQL Metadata Audit supported SVN instead of GIT. That's not supported anymore on the newest versions. If you still use SVN you can grap an older version and give it a go, but you won't benefit of the new features.
 
 ## Changelog
 	see changelog
