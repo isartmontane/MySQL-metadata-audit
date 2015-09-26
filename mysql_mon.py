@@ -30,7 +30,7 @@ config.read('config.cfg')
 
 ##MySQL user/password used to get the MySQL metadata
 mysql_user=config.get('Defaults', 'mysql_user')
-mysql_password=config.get('Defaults', 'mysql_user')
+mysql_password=config.get('Defaults', 'mysql_password')
 #
 
 ##Used only on config_file mode
