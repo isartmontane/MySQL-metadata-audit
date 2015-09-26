@@ -22,130 +22,104 @@
 # If you need to get more information about the project please visit
 #  https://github.com/isartmontane/MySQL-metadata-audit
 #
+import ConfigParser
+import json
 
+config = ConfigParser.ConfigParser()
+config.read('config.cfg')
 
-#MySQL user/password used to get the MySQL metadata
-mysql_user='isart'
-mysql_password='isart'
+##MySQL user/password used to get the MySQL metadata
+mysql_user=config.get('Defaults', 'mysql_user')
+mysql_password=config.get('Defaults', 'mysql_user')
+#
 
-#Used on config_file mode
-mysql_host_list={
-'6myServer.mydomain.com':'127.0.0.1',
-'5myServer.mydomain.com':'127.0.0.1',
-'4myServer.mydomain.com':'127.0.0.1',
-'3myServer.mydomain.com':'127.0.0.1',
-'2myServer.mydomain.com':'127.0.0.1',
-'1myServer.mydomain.com':'127.0.0.1',
-}
+##Used only on config_file mode
+mysql_host_list=json.loads(config.get('Defaults', 'mysql_host_list'))[0]
+#
+##Used only on AWS mode. We will query AWS and filter all the servers that have the tag Role=mysql
+aws_tag_name=config.get('Defaults', 'aws_tag_name')
+aws_tag_value=config.get('Defaults', 'aws_tag_value')
 
-#Used on AWS mode. We will query AWS and filter all the servers that have the tag Role=mysql
-aws_tag_name="Role"
-aws_tag_value="mysql"
+#
+##Where to send the changes
+mail_to=config.get('Defaults', 'mail_to')
+mail_from=config.get('Defaults', 'mail_from')
 
-#Where do you have your git repo?
-git_repo_dir="/home/isart/git-repos/mysql-monitor"
- #Where to send the changes
-mail_to='me@myEmail.com'
+#the following variables will be excluded from the diff. It should be a valid egrep expression
+mysql_exclude_var=config.get('Defaults','mysql_exclude_var')
+
+#Where do you have your repo?
+repo_dir=config.get('Defaults','repo_dir')
 
 #############################################################################
 ## Do not change anything below this line unless you know what you are doing
 #############################################################################
 
-DEBUG=True
+DEBUG=False
+#DEBUG=True
 
-from git import *
 import os
 import subprocess 
-import shutil 
 import time
 import sys
 import getopt 
-import MySQLdb
 import smtplib
-import socket
 import string
-import json
+import datetime
 from email.mime.text import MIMEText
 
-mail_from='mysql_mon@'+socket.gethostname()
-repo = Repo(git_repo_dir)
-git_repo = repo.git
 aws_server_list={}
 skip_audits={}
+now=datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+summary_text=[]
 
-def p(string):
-	if DEBUG:
+def p(string,debug_v=1):
+	if DEBUG and debug_v>1:
+		print string;
+	if DEBUG and debug_v==1:
 		print string;
 
-#Make sure we have the last version of the git repo
-def checkout_git():
-	p('Checking existing git directory...')
-	try:
-		git_repo.pull()
-	except:
-		print"Unexpected error during checkout. Is it the first time you run mysql_mon? Make sure you have configured an exisiting git repo. "
-		print sys.exc_info()
-		return False
-	return True
-
-def dump_and_diff_schema(mysql_host):
+def dump_schema(tag,mysql_host):
 	p('\tDumping DB schema ...')
 	diff_text=''
-	file_name='schema.'+mysql_host[0]
-	dst_file = git_repo_dir+'/'+file_name
-	os.system('mysqldump -R --skip-dump-date -d -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host[1]+' -A|sed -r "s/ AUTO_INCREMENT=[0-9]+ / /g">'+dst_file)
+	file_name='schema.'+tag+'.'+mysql_host+'.'+now
+	dst_file = repo_dir+'/'+file_name
+	os.system('mysqldump -R --skip-dump-date -d -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -A|sed -r "s/ AUTO_INCREMENT=[0-9]+ / /g" >>'+dst_file)
 
-def get_mysql_variables(mysql_host):
+def get_mysql_variables(tag,mysql_host):
 	p('\tChecking variables ...')
-        first_run=True
-	file_name='variables.'+mysql_host[0]
-	dst_file = git_repo_dir+'/'+file_name
-	os.system('mysql -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host[1]+' -e"show variables"|egrep -v "(pseudo_thread_id|timestamp)">'+dst_file)
+	file_name='variables.'+tag+'.'+mysql_host+'.'+now
+	dst_file = repo_dir+'/'+file_name
+	cmd = 'mysql -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -e"show variables"|egrep -v '+mysql_exclude_var+'>'+dst_file
+	p(cmd,10)
+	os.system(cmd)
 
-def get_user_permissions(mysql_host):
+def get_user_permissions(tag,mysql_host):
 	p('\tChecking user permissions ...')
-	conn = MySQLdb.connect (mysql_host[1], mysql_user, mysql_password)
-	mysqlcursor = conn.cursor()
-	diff_text=''
-	file_name='users.'+mysql_host[0]
-	dst_file = git_repo_dir+'/'+file_name
+	file_name='users.'+tag+'.'+mysql_host+'.'+now
+	dst_file = './'+file_name
+	cmd = 'mysql -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -e"select concat(\\"show grants for \'\\",user,\\"\'@\'\\",host,\\"\'\\") from mysql.user"'
+	
+	p(cmd,10)
+	pr = subprocess.Popen(cmd , cwd = repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
+	(out, error) = pr.communicate()
 
-        if os.path.exists(dst_file):
-                first_run=False
+	if error:
+		print error 
 
-	f = open(dst_file,'w')
+	for user_grant in out.splitlines():
+		cmd = 'mysql -u'+mysql_user+' -p'+mysql_password+' -h'+mysql_host+' -e"'+user_grant+'" >>'+dst_file
+		p(cmd,10)
+		pr = subprocess.Popen(cmd , cwd = repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
+		(out, error) = pr.communicate()
 
-	mysqlcursor.execute("""select user,host from mysql.user""")
-	rows = mysqlcursor.fetchall()
-	for row in rows:
-		p("\t\tshow grants for '"+row[0]+"'@'"+row[1]+"'")
-		mysqlcursor.execute("""show grants for %s@%s """, (row[0], row[1]))
-		rows_grant = mysqlcursor.fetchall()
-		diff_text+="/* grants for %s@%s */\n" %(row[0], row[1])
-		for row_grant in rows_grant:
-			diff_text+=row_grant[0]+"\n"
-
-	f.writelines(diff_text)
-	f.close()
-
-def commit_differences():
-	index = repo.index
-	new_files=repo.untracked_files
-	for f in new_files:
-		p("New file found: "+f)
-		index.add([f])
-	subprocess.Popen( "git commit -a -m'tracking changes' " , cwd = git_repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
-	return new_files
-
-def push_changes():
-	p('Pushing changes to repo')
-	index = repo.index
-	git_repo.push()
+		if error:
+			print error 
 
 def send_email(text):
 	p('Sending email!')
 	msg =  MIMEText(text, 'plain')
-	msg['Subject'] = 'MySQL mon: Changes on %s' % socket.gethostname()
+	msg['Subject'] = 'MySQL-metadata-audit: Changes found.'
 	msg['From'] = mail_from
 	msg['To'] = mail_to
 
@@ -155,18 +129,22 @@ def send_email(text):
 	s.sendmail(mail_from, [mail_to], msg.as_string())
 	s.quit()
 
-def get_git_diff():
-	pr = subprocess.Popen( "git diff" , cwd = git_repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
+def get_diff(what_to_diff, tag):
+	cmd="file=$(ls "+what_to_diff+"."+tag+".* -rt|tail -2);diff $file"
+	p(cmd,10)
+	pr = subprocess.Popen(cmd , cwd = repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
 	(out, error) = pr.communicate()
-	new_files=commit_differences()
-	if len(new_files) > 0:
-		out = out+'\n'+', '.join(new_files)
-	return out
+	if error:
+		p("Couldn't run diff, probably first run.\n"+error)
+	if out:
+		p("\tDifferences found for server {}".format(tag))
+		p(out)
+		summary_text.append("\n\nDifferences on {} for server {}:\n{}".format(what_to_diff,tag,out))
 
 def get_aws_instances():
 	p('Getting servers from AWS')
 	server_list = []
-	pr = subprocess.Popen('aws ec2 describe-instances --filter Name=tag:'+aws_tag_name+',Values='+aws_tag_value+' --query "Reservations[].Instances[].[State.Name,Tags,PublicDnsName]"', cwd = git_repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
+	pr = subprocess.Popen('aws ec2 describe-instances --filter Name=tag:'+aws_tag_name+',Values='+aws_tag_value+' --query "Reservations[].Instances[].[State.Name,Tags,PublicDnsName]"', cwd = repo_dir, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
 	(out, error) = pr.communicate()
 	servers_info = json.loads(out)
 
@@ -182,25 +160,22 @@ def get_aws_instances():
 	return aws_server_list
 
 def run_diff(mysql_host_list):
-	p('Checking the following servers: '+', '.join(mysql_host_list))
-	if checkout_git():
-		all_diff=''
-		for mysql_host in mysql_host_list.items():
-			p("Host - "+mysql_host[0]+":")
-			if "skip-variables-audit" not in skip_audits:
-			        get_mysql_variables(mysql_host)
-			if "skip-user-audit" not in skip_audits:
-				get_user_permissions(mysql_host)
-			if "skip-schema-audit" not in skip_audits.keys():
-				dump_and_diff_schema(mysql_host)
-		all_diff=get_git_diff()
-		if len(all_diff) > 0:
-			p('Changes found:')
-			p(all_diff)
-			push_changes()
-			send_email(all_diff)
-		else:
-			p('No changes found')
+	if not os.path.exists(repo_dir):
+	    os.makedirs(repo_dir)
+	all_diff=''
+	for tag, mysql_host in mysql_host_list.iteritems():
+		p('Checking the following servers: {} ({}) '.format(tag,mysql_host))
+		if "skip-variables-audit" not in skip_audits:
+		        get_mysql_variables(tag,mysql_host)
+			get_diff("variables",tag)
+		if "skip-user-audit" not in skip_audits:
+			get_user_permissions(tag,mysql_host)
+			get_diff("users",tag)
+		if "skip-schema-audit" not in skip_audits.keys():
+			dump_schema(tag,mysql_host)
+			get_diff("schema",tag)
+	print '\n'.join(summary_text)
+	send_email('\n'.join(summary_text))
 
 def help():
 	print ''

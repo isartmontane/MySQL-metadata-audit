@@ -1,3 +1,9 @@
+Version 0.3
+- Can log the info on directories instead of using repos
+- Allows to set directories and exclude variables on the config file 
+- removed mysqldb dependencies
+- clear email information
+
 Version 0.2
 - Migrated from SVN to Git. SVN is not supported anymore (sorry!)
 - Able to read mysql servers list from an AWS tag
@@ -10,3 +16,8 @@ Version 0.1
 - Tracking table schema changes
 - Tracking users permissions
 - Tracking mysql variables
+
+
+TODO
+- support for regular expresions on tag filtering. For example *mysql*
+- support for server groups
